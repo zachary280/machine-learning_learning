@@ -9,11 +9,9 @@ def computerEntropy(dataSet):
     labelDirc = {}
     for set in dataSet:
         currentLabel = set[-1]
-        if currentLabel in labelDirc.keys():
-            labelDirc[currentLabel] += 1
-        else:
-            labelDirc[currentLabel] = 1
-
+        if currentLabel not in labelDirc.keys():
+            labelDirc[currentLabel] = 0
+        labelDirc[currentLabel] += 1
     entropy = 0.0
     for label in labelDirc.keys():
         probability = float(labelDirc[label]) / setlength
@@ -99,7 +97,7 @@ def computerMaxGain(dataSet):
         # get set and the data in the set has same property
         for set in dataSet:
             currentLabel = set[index]
-            if currentLabel not in labelDirc:
+            if currentLabel not in labelDirc.keys():
                 labelDirc[currentLabel] = 0
                 setDirc[currentLabel] = []
             labelDirc[currentLabel] += 1
@@ -123,20 +121,92 @@ def computerMaxGain(dataSet):
     return maxGain, setIndex, gain,intrinsticValue
 
 
-def computeMaxGainContinuous(dataSet):
-    # 计算连续值的信息增益
+def computeMaxGainContinuous(dataSet, labels, numberQueue=[]):
+    # 计算含有连续值样本的最大的信息增益，也可以计算只含有离散值的样本的最大的信息增益
+    # numberQueue 保存所有属于连续值的索引，numberQueue的值在函数中会改变
     oldEntropy = computerEntropy(dataSet)
     setLength = len(dataSet)
     # find max information Gain
     maxGain = 0
     # get property when get max information Gain
     setIndex = 0
+    dividePoint = {}
     # get information gain for every property
     gain = {}
     # compute intrinstic value
-    intrinsticValue = {}
+    # intrinsticValue = {}
 
-    return
+    # 计算每一个属性的信息熵
+    for index in range(len(dataSet[0])-1):
+        labelDirc = {}
+        setDirc = {}
+        # 对每一个样本进行判断,如果是连续值则使用二分法进行计算，如果是离散值则使用离散数据的方式计算
+        if labels[index] in numberQueue:
+            # 对连续值进行排序
+            sortList = [item[index] for item in dataSet]
+            sortList.sort()
+            maxGainContinuous = 0
+            for sortListIndex in range(len(sortList)-1):
+
+                mid = (sortList[sortListIndex] + sortList[sortListIndex+1]) / 2
+                labelDirc['midSub'] = 0
+                labelDirc['midAdd'] = 0
+                setDirc['midSub'] = []
+                setDirc['midAdd'] = []
+                for set in dataSet:
+                    currentItem = set[index]
+                    if currentItem <= mid:
+                        labelDirc['midSub'] += 1
+                        setDirc['midSub'].append(set)
+                    else:
+                        labelDirc['midAdd'] += 1
+                        setDirc['midAdd'].append(set)
+                # compute information gain
+                currentEntropy = 0.0
+                currentGain = 0.0
+                # iv = 0.0
+                for label in labelDirc.keys():
+                    currentEntropy = computerEntropy(setDirc[label])
+                    probability = float(labelDirc[label]) / setLength
+                    currentGain += probability * currentEntropy
+                    # iv -= probability * (log(probability, 2))
+                currentGain = oldEntropy - currentGain
+                if currentGain >= maxGainContinuous:
+                    maxGainContinuous = currentGain
+                    dividePoint[index] = mid
+                    gain[index] = currentGain
+                    # intrinsticValue[index] = iv
+
+            if maxGainContinuous > maxGain:
+                maxGain = maxGainContinuous
+                setIndex = index
+        # 计算离散值
+
+        else:
+            for set in dataSet:
+                currentLabel = set[index]
+                if currentLabel not in labelDirc.keys():
+                    labelDirc[currentLabel] = 0
+                    setDirc[currentLabel] = []
+                labelDirc[currentLabel] += 1
+                setDirc[currentLabel].append(set)
+            currentEntropy = 0.0
+            currentGain = 0.0
+            # iv = 0.0
+            for label in labelDirc.keys():
+                currentEntropy = computerEntropy(setDirc[label])
+                probability = float(labelDirc[label]) / setLength
+                currentGain += probability * currentEntropy
+                # iv -= probability * (log(probability, 2))
+            currentGain = oldEntropy - currentGain
+            gain[index] = currentGain
+            # intrinsticValue[index] = iv
+            if currentGain >= maxGain:
+                maxGain = currentGain
+                setIndex = index
+    return maxGain, setIndex, gain, dividePoint
+
+
 
 def computeGainRation(dataSet):
     # c4.5 arithmetic
@@ -173,7 +243,7 @@ def computeGainRation(dataSet):
 # 使用此算法创建决策树，将会产生两个决策树，这两个决策树的结构一样，但是存在左右孩子对调的情况
 # 使用此算法的信息增益算法和增益率算法产生的决策树一样，未找到问题所在
 def treeGenerate(dataSet, labels):
-    # generate decision making tree
+    # 生成普通的决策树,不考虑过拟合和欠拟合的情况，即不进行预剪枝和后剪枝操作
     classList = [example[-1] for example in dataSet]
     # 判断样本是否属于同一个类别
     if classList.count(classList[0]) == len(classList):
@@ -305,10 +375,53 @@ def treeGeneratePrePruning(dataSet, testSet, labels, labelTemp, mytree={}, queue
 
 
 
-def  treeGenerateContinuousValue():
-    # 对于连续值的处理方法：采用二分法进行处理
+def  treeGenerateContinuousValue(dataSet, labels, numberQueue=[]):
+    # 对存在连续值的样本创建普通树，不考虑过拟合和欠拟合的情况，即不进行预剪枝和后剪枝操作
+    # 也可以用于创建只含有离散值的样本的普通决策树
+    # 对于存在连续值的样本若当前节点划分属性为连续属性，该属性还可以作为其后代的划分属性
+    # 即与离散值在每次创建节点都需要删除属性不同，连续值每次创建节点不需要删除属性
+    # 会改变labels的值，建议传入值lables[:],而非传入引用labels
 
-    return
+    classList = [example[-1] for example in dataSet]
+    # 判断样本是否属于同一个类别
+    if classList.count(classList[0]) == len(classList):
+        return classList[0]
+    # 判断标签值是否为空或者样本的属性是否都相同
+    if len(labels) == 0 or sameLable(dataSet, labels):
+        return majorityCnt(classList)
+    # 可以进行替换，以使用不同的算法
+    #  信息增益算法
+    maxGain, setIndex, gain, dividePoint = computeMaxGainContinuous(dataSet, labels,numberQueue)
+    # 暂时无法使用增益率
+    # maxGainRation, gain_ration, setIndex = computeGainRation(dataSet)
+    # 暂时无法使用基尼指数
+    # minGini, setIndex, gini = computeMinGiniIndex(dataSet)
+    bestFeatLable = labels[setIndex]
+    myTree = {bestFeatLable: {}}
+    if labels[setIndex] not in numberQueue:
+        del (labels[setIndex])
+        featValues = [example[setIndex] for example in dataSet]
+        uniqueVals = set(featValues)
+
+        for value in uniqueVals:
+            subDataSet = splitDataSet(dataSet, setIndex, value)
+            if len(subDataSet) == 0:
+                return majorityCnt(classList)
+            else:
+                myTree[bestFeatLable][value] = treeGenerateContinuousValue(subDataSet, labels[:],numberQueue)
+    # 对连续数据进行操作
+    else:
+        # 根据分割点对数据集进行划分
+        # 小于分割点数据
+        value = "<="+str(dividePoint[setIndex])
+        subDataSet = splitDataSetContinuousValue(dataSet, setIndex, dividePoint[setIndex],True)
+        myTree[bestFeatLable][value] = treeGenerateContinuousValue(subDataSet, labels[:], numberQueue)
+        # 大于分割点
+        value = ">" + str(dividePoint[setIndex])
+        subDataSet = splitDataSetContinuousValue(dataSet, setIndex, dividePoint[setIndex],False)
+        myTree[bestFeatLable][value] = treeGenerateContinuousValue(subDataSet, labels[:], numberQueue)
+    return myTree
+
 
 def getOldValue(tree, queue):
     if len(queue) == 1:
@@ -371,6 +484,17 @@ def splitDataSet(dataSet, axis, value):
             reducedFeatVec.extend(featVec[axis + 1:])
             retDataSet.append(reducedFeatVec)
     return retDataSet
+
+def splitDataSetContinuousValue(dataSet, axis, value,flag=True):
+    # 对连续取值的样本进行划分，flage 为取大于或者小于value样本的标记，True为取大于value的样本，False 为取小于value的样本，默认值为True
+    retDataSet = []
+    for featVec in dataSet:
+        if flag==True and featVec[axis] <= value:
+            retDataSet.append(featVec)
+        elif flag == False and featVec[axis]>value:
+            retDataSet.append(featVec)
+    return retDataSet
+
 
 def sameLable(dataSet,labels):
     for label in range(len(labels)):
